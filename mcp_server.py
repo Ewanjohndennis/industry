@@ -20,7 +20,7 @@ from fastmcp import FastMCP
 from serpapi import GoogleSearch
 
 # ── Load env (resolve relative to this file so subprocess spawning works) ────
-_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
+_env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(_env_path)
 SERP_KEY = os.getenv("SERP_API_KEY")
 
