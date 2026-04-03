@@ -16,13 +16,14 @@ from collections import Counter
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
+import streamlit as st
 from fastmcp import FastMCP
 from serpapi import GoogleSearch
 
 # ── Load env (resolve relative to this file so subprocess spawning works) ────
 _env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(_env_path)
-SERP_KEY = os.getenv("SERP_API_KEY")
+SERP_KEY = st.secrets("SERP_API_KEY")
 
 # ── FastMCP instance ────────────────────────────────────────────────────────
 mcp = FastMCP("Industry Intelligence Server")
