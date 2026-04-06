@@ -401,9 +401,9 @@ if analyse_btn:
                     run_full_analysis(brands, product_type.strip())
                 )
 
-                # ── Compute derived analytics ────────────────────────
-               trend_freq = calculate_trend_frequency(trend_results, brands)
+                # ── Compute derived analytics ───────────────────────
                 trend_results = trend_raw.get("results", []) if isinstance(trend_raw, dict) else []
+                trend_freq = calculate_trend_frequency(trend_results, brands)
 
                 b_stats = {}
                 for b in brands:
