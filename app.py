@@ -18,8 +18,13 @@ import re
 import requests
 from huggingface_hub import InferenceClient
 
+def get_secret(key):
+    try:
+        return st.secrets[key]
+    except Exception:
+        return os.getenv(key)
 def llm_call(prompt):
-    token = os.getenv("HF_TOKEN")
+    token = get_secret("HF_TOKEN")
     if not token:
         return "⚠️ HF_TOKEN not set"
     
