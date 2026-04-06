@@ -22,6 +22,24 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 from fastmcp import Client
 import plotly.express as px
 import plotly.graph_objects as go
+from collections import Counter
+import re
+
+def calculate_trend_frequency(trend_results, brands):
+    counter = Counter()
+
+    for item in trend_results:
+        text = (
+            (item.get("title", "") + " " + item.get("snippet", ""))
+            .lower()
+        )
+
+        for brand in brands:
+            pattern = rf"\b{re.escape(brand.lower())}\b"
+            if re.search(pattern, text):
+                counter[brand] += 1
+
+    return counter
 
 # Local modules (same directory)
 from ai_engine import (
@@ -384,7 +402,7 @@ if analyse_btn:
                 )
 
                 # ── Compute derived analytics ────────────────────────
-                trend_freq = trend_raw.get("brand_frequency", {}) if isinstance(trend_raw, dict) else {}
+               trend_freq = calculate_trend_frequency(trend_results, brands)
                 trend_results = trend_raw.get("results", []) if isinstance(trend_raw, dict) else []
 
                 b_stats = {}
