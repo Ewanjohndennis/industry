@@ -121,14 +121,14 @@ def generate_pdf_report(
     pdf.add_page()
 
     # 1 ── Analysis Parameters ────────────────────────────────────────────
-    pdf.section("1 · Analysis Parameters")
+    pdf.section("1 - Analysis Parameters")
     pdf.kv("Brands Analysed:", ", ".join(brands))
     pdf.kv("Product Category:", product_type)
     pdf.kv("Report Generated:", datetime.now().strftime("%Y-%m-%d %H:%M"))
     pdf.ln(4)
 
     # 2 ── Brand Comparison ───────────────────────────────────────────────
-    pdf.section("2 · Brand Comparison")
+    pdf.section("2 - Brand Comparison")
     cw = [35, 27, 27, 23, 27, 27, 27]
     pdf.table_header(cw, ["Brand", "Avg Price", "Avg Rating", "Products", "Min $", "Max $", "Range"])
     for b, s in brand_stats.items():
@@ -144,7 +144,7 @@ def generate_pdf_report(
     pdf.ln(4)
 
     # 3 ── Market Trends ──────────────────────────────────────────────────
-    pdf.section("3 · Market Trends")
+    pdf.section("3 - Market Trends")
     if trend_data:
         tw = [70, 45, 45]
         pdf.table_header(tw, ["Brand", "Search Frequency", "Market Share %"])

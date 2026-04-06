@@ -1,13 +1,3 @@
-"""
-Real-Time Industry Insights Dashboard
-=======================================
-Production-level Streamlit app powered by FastMCP + SerpAPI.
-
-Architecture:
-  User → Streamlit UI → FastMCP Client → MCP Server → SerpAPI
-       → Data Processing → AI Engine → Visualisation → PDF Export
-"""
-
 import streamlit as st
 import asyncio
 import json
@@ -17,12 +7,36 @@ import os
 # ── Path & env setup ────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+from dotenv import load_dotenv
+load_dotenv()
 
 from fastmcp import Client
 import plotly.express as px
 import plotly.graph_objects as go
+from collections import Counter
+import re
+import requests
+from huggingface_hub import InferenceClient
 
+def llm_call(prompt):
+    token = os.getenv("HF_TOKEN")
+    if not token:
+        return "⚠️ HF_TOKEN not set"
+    
+    try:
+        client = InferenceClient(
+            provider="cerebras",   # fast, free, reliable via HF token
+            api_key=token,
+        )
+        response = client.chat.completions.create(
+            model="meta-llama/Llama-3.1-8B-Instruct",  # non-gated on cerebras
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=400,
+            temperature=0.7,
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"⚠️ LLM error: {str(e)}"
 # Local modules (same directory)
 from ai_engine import (
     compute_stats,
@@ -33,6 +47,7 @@ from ai_engine import (
     generate_market_summary,
     explain_decision,
 )
+
 from pdf_report import generate_pdf_report
 
 # ── Page config ─────────────────────────────────────────────────────────────
@@ -43,6 +58,23 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
+def compute_trend_frequency(trend_results, brands):
+    counter = Counter({brand: 0 for brand in brands})  # 👈 FORCE all brands
+
+    for item in trend_results:
+        title = item.get("title", "").lower()
+        snippet = item.get("snippet", "").lower()
+
+        for brand in brands:
+            pattern = rf"\b{re.escape(brand.lower())}\b"
+
+            if re.search(pattern, title):
+                counter[brand] += 3
+            elif re.search(pattern, snippet):
+                counter[brand] += 1
+
+    return dict(counter)
 # ═══════════════════════════════════════════════════════════════════════════
 #  CSS — Premium dark glassmorphism theme
 # ═══════════════════════════════════════════════════════════════════════════
@@ -262,10 +294,6 @@ section[data-testid="stSidebar"] .stTextInput>div>div>input {
 </style>
 """, unsafe_allow_html=True)
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Hero
-# ═══════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <div class="hero">
     <h1>🔬 Industry Insights</h1>
@@ -384,9 +412,10 @@ if analyse_btn:
                 )
 
                 # ── Compute derived analytics ────────────────────────
-                trend_freq = trend_raw.get("brand_frequency", {}) if isinstance(trend_raw, dict) else {}
                 trend_results = trend_raw.get("results", []) if isinstance(trend_raw, dict) else []
 
+# 🔥 Recompute properly
+                trend_freq = compute_trend_frequency(trend_results, brands)
                 b_stats = {}
                 for b in brands:
                     prods = brand_data.get(b, []) if isinstance(brand_data, dict) else []
@@ -512,6 +541,41 @@ if st.session_state.get("ok"):
                 else:
                     st.info("No products found.")
                 st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("### 🧠 Brand Score Breakdown")
+            xai_tabs = st.tabs([f"🔍 {b}" for b in brands])
+
+            for i, b in enumerate(brands):
+                with xai_tabs[i]:
+                    breakdown = b_scores[b].get("breakdown", {})
+
+                    st.markdown(f"#### {b} Score: {b_scores[b]['total_score']} ({b_scores[b]['grade']})")
+
+                    # Show components
+                    for comp, data in breakdown.items():
+                        score = data.get("score", 0)
+                        reason = data.get("reason", "")
+
+                        st.markdown(f"""
+                        <div class="glass">
+                            <b>{comp.title()}</b> — {score}
+                            <br><span style="color:#8892b0;">{reason}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # 🔥 Add LLM explanation on top of math
+                    st.markdown("##### 🤖 AI Explanation")
+
+                    prompt = f"""
+                    Explain why {b} received this score.
+
+                    Breakdown:
+                    {breakdown}
+
+                    Give a simple explanation in 3-4 sentences. No code, no tables, just plain English. Be direct and business focused.
+                    """
+
+                    ai_explain = llm_call(prompt)
+                    st.markdown(ai_explain)
 
     # ══════════════════════════════════════════════════════════════════════
     #  TAB 2 — Market Trends
@@ -521,122 +585,66 @@ if st.session_state.get("ok"):
         st.markdown('<div class="glow-div"></div>', unsafe_allow_html=True)
 
         if trend_freq:
-            # Bar chart
             sorted_items = sorted(trend_freq.items(), key=lambda x: x[1], reverse=True)
             chart_brands = [x[0] for x in sorted_items]
             chart_counts = [x[1] for x in sorted_items]
+
             fig_bar = go.Figure(go.Bar(
                 x=chart_brands, y=chart_counts,
-                marker=dict(
-                    color=chart_counts,
-                    colorscale=[[0, "#0ea5e9"], [0.5, "#928dff"], [1, "#ff6ec4"]],
-                    line=dict(width=0),
-                    cornerradius=6,
-                ),
-                text=chart_counts, textposition="outside",
-                textfont=dict(color="#ccd6f6", size=12, family="Inter"),
+                text=chart_counts, textposition="outside"
             ))
-            fig_bar.update_layout(
-                title="Brand Search Frequency",
-                **PLOTLY_LAYOUT,
-                yaxis_title="Mentions",
-                showlegend=False,
-                height=400,
-            )
+            fig_bar.update_layout(**PLOTLY_LAYOUT)
             st.plotly_chart(fig_bar, use_container_width=True)
 
-            # Pie chart
-            total = sum(chart_counts)
-            fig_pie = go.Figure(go.Pie(
-                labels=chart_brands, values=chart_counts,
-                hole=0.5,
-                marker=dict(colors=BRAND_COLORS[:len(chart_brands)]),
-                textinfo="label+percent",
-                textfont=dict(size=11, family="Inter"),
-            ))
-            fig_pie.update_layout(
-                title="Market Share Distribution",
-                **PLOTLY_LAYOUT,
-                height=400,
-                showlegend=True,
-                legend=dict(font=dict(color="#8892b0")),
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
+        # 🤖 AI Insight
+        st.markdown("### 🤖 AI Trend Insight")
 
-        # Momentum table
-        if momentum:
-            st.markdown("#### 🚀 Market Momentum")
-            for m in momentum:
-                st.markdown(f"""
-                <div class="prod-row">
-                    <span class="prod-name" style="font-weight:700;">{m['brand']}</span>
-                    <span class="badge b-price">{m['status']}</span>
-                    <span class="badge b-rating">Strength: {m['strength']}%</span>
-                </div>""", unsafe_allow_html=True)
+        trend_prompt = f"""You are a senior market analyst. Analyze the trend data below and give a sharp, direct insight.
 
-        # Top search results
-        if trend_results:
-            st.markdown('<div class="glow-div"></div>', unsafe_allow_html=True)
-            st.markdown("#### 🔗 Top Organic Results")
-            for tr in trend_results[:8]:
-                link = tr.get('link', '#')
-                st.markdown(f"""
-                <div class="prod-row">
-                    <a href="{link}" target="_blank" class="prod-name" style="text-decoration:none;">{tr.get('title','')}</a>
-                </div>""", unsafe_allow_html=True)
+        Product: {prod_type}
+        Brands: {', '.join(brands)}
+        Trend mentions: {trend_freq}
+
+        In 3-4 bullet points cover:
+        - Which brand dominates the trend and why
+        - What this momentum means for the market
+        - One actionable takeaway for a business decision maker
+
+        No code. No tables. No bullet points. Plain business English only."""
+
+        trend_ai = llm_call(trend_prompt)
+        st.markdown(trend_ai)
 
     # ══════════════════════════════════════════════════════════════════════
     #  TAB 3 — AI Insights
     # ══════════════════════════════════════════════════════════════════════
     with tab3:
-        st.markdown("### 🤖 AI Market Analyst")
+        st.markdown("### 🤖 AI Market Intelligence")
         st.markdown('<div class="glow-div"></div>', unsafe_allow_html=True)
 
-        # Confidence gauge
-        conf = mkt_summary.get("confidence", 0)
-        st.markdown(f"""
-        <div class="glass" style="text-align:center; padding:1.5rem;">
-            <div class="metric-lbl">Analysis Confidence</div>
-            <div class="metric-val" style="font-size:2.2rem;
-                 background:linear-gradient(90deg,#00d2ff,#928dff);
-                 -webkit-background-clip:text; -webkit-text-fill-color:transparent;">
-                {conf:.0f}%
-            </div>
-            <div class="score-outer" style="max-width:300px; margin:.5rem auto;">
-                <div class="score-inner" style="width:{conf}%"></div>
-            </div>
-        </div>""", unsafe_allow_html=True)
+        ai_prompt = f"""You are a strategic market intelligence analyst. Be direct and confident.
 
-        # Summary
-        st.markdown(f"""
-        <div class="glass">
-            <h3>📋 Market Summary</h3>
-            <p style="color:#8892b0; line-height:1.7; font-size:.9rem;">{mkt_summary.get('summary','')}</p>
-        </div>""", unsafe_allow_html=True)
+            Product category: {prod_type}
+            Brands analyzed: {', '.join(brands)}
+            Intelligence scores: {b_scores}
+            Trend frequency: {trend_freq}
 
-        # Recommendation
-        best = mkt_summary.get("best_brand")
+            Give exactly three things:
+            1. A two-sentence market summary stating who leads and why.
+            2. A one-sentence best brand recommendation with a specific reason.
+            3. A one-sentence strategic insight a business could act on today.
+
+            No code. No tables. No hedging language. Speak like a confident analyst."""
+
+
+        ai_output = llm_call(ai_prompt)
+
         st.markdown(f"""
         <div class="glass">
-            <h3>💡 Recommendation</h3>
-            <p style="color:#8892b0; line-height:1.7; font-size:.9rem;">{mkt_summary.get('recommendation','')}</p>
-        </div>""", unsafe_allow_html=True)
-
-        # Strategic Insight
-        st.markdown(f"""
-        <div class="glass">
-            <h3>🎯 Strategic Insight</h3>
-            <p style="color:#8892b0; line-height:1.7; font-size:.9rem;">{mkt_summary.get('strategic_insight','')}</p>
-        </div>""", unsafe_allow_html=True)
-
-        # XAI explanations
-        st.markdown('<div class="glow-div"></div>', unsafe_allow_html=True)
-        st.markdown("### 🧠 Explainable AI — Score Breakdown")
-        xai_tabs = st.tabs([f"🔍 {b}" for b in brands])
-        for i, b in enumerate(brands):
-            with xai_tabs[i]:
-                explanation = explain_decision(b_scores[b], b)
-                st.markdown(explanation)
+            <h3>🧠 AI Analysis</h3>
+            <p style="color:#8892b0;">{ai_output}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════════════════
     #  TAB 4 — Advanced Analytics
@@ -731,6 +739,22 @@ if st.session_state.get("ok"):
             showlegend=False,
         )
         st.plotly_chart(fig_rank, use_container_width=True)
+        st.markdown("### 🤖 AI Analytics Insight")
+
+        analytics_prompt = f"""You are a data-driven brand strategist. Interpret the scores below and explain what they mean in plain English.
+
+            Product: {prod_type}
+            Brand intelligence scores: {b_scores}
+
+            In 3-4 bullet points:
+            - Name the strongest brand and what drives its score
+            - Name the weakest brand and what is holding it back
+            - State the single biggest performance gap between brands
+
+            No code. No tables. Numbers only if they add meaning. Plain English."""
+
+        analytics_ai = llm_call(analytics_prompt)
+        st.markdown(analytics_ai)
 
     # ══════════════════════════════════════════════════════════════════════
     #  TAB 5 — Predictions & Alerts
@@ -780,18 +804,21 @@ if st.session_state.get("ok"):
                     </div>""", unsafe_allow_html=True)
 
         st.markdown('<div class="glow-div"></div>', unsafe_allow_html=True)
-        st.markdown("### ⚠️ Smart Insight Alerts")
+    
+        st.markdown("### 🤖 AI Prediction Insight")
+        pred_prompt = f"""You are a market forecasting expert. Based on the prediction data, give a forward-looking assessment.
 
-        if alerts:
-            for a in alerts:
-                sev = a.get("severity", "info")
-                css_class = f"alert-{sev}" if sev in ("positive", "warning", "caution", "info") else "alert-info"
-                st.markdown(f"""
-                <div class="alert-card {css_class}">
-                    <div class="alert-title">{a.get('icon','')} {a.get('title','')}</div>
-                    <div class="alert-msg">{a.get('message','')}</div>
-                </div>""", unsafe_allow_html=True)
+            Product: {prod_type}
+            Brand predictions: {preds}
 
+            In 3-4 bullet points cover:
+            - Which brand is most likely to lead the market in the next 6 months and why
+            - The single biggest risk facing the lowest-scoring brand
+            - One market opportunity that any of these brands could exploit right now
+
+            No code. No tables. Confident, specific, forward-looking language only."""
+        pred_ai = llm_call(pred_prompt)
+        st.markdown(pred_ai)
     # ══════════════════════════════════════════════════════════════════════
     #  TAB 6 — Export Report
     # ══════════════════════════════════════════════════════════════════════
