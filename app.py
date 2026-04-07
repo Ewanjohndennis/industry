@@ -581,34 +581,63 @@ if st.session_state.get("ok"):
         for i, b in enumerate(brands):
             with xai_tabs[i]:
                 breakdown = b_scores[b].get("breakdown", {})
+                total = b_scores[b]['total_score']
+                grade = b_scores[b]['grade']
 
-                st.markdown(f"#### {b} Score: {b_scores[b]['total_score']} ({b_scores[b]['grade']})")
+                st.markdown(f"#### {b} Score: {total} ({grade})")
 
-                for comp, data in breakdown.items():
-                    score = data.get("score", 0)
-                    reason = data.get("reason", "")
+                # ── Component cards with score + reason ──────────────────────
+                comp_labels = {
+                    "rating": ("⭐ Rating", 35),
+                    "price":  ("💰 Price",  25),
+                    "trend":  ("📈 Trend",  25),
+                    "value":  ("🎯 Value",  15),
+                }
+                for comp_key, (comp_label, max_score) in comp_labels.items():
+                    data = breakdown.get(comp_key, {})
+                    score = data.get("score", 0) if isinstance(data, dict) else data
+                    reason = data.get("explanation", "No data provided.") if isinstance(data, dict) else "—"
+                    bar_pct = int((score / max_score) * 100) if max_score else 0
 
                     st.markdown(f"""
                     <div class="glass">
-                        <b>{comp.title()}</b> — {score}
-                        <br><span style="color:#8892b0;">{reason}</span>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:.4rem;">
+                            <b style="color:#ccd6f6;">{comp_label}</b>
+                            <span style="color:#00d2ff; font-weight:700;">{score} / {max_score}</span>
+                        </div>
+                        <span style="
+                            display:inline-block;
+                            padding:.2rem .65rem;
+                            border-radius:999px;
+                            font-size:.78rem;
+                            font-weight:700;
+                            background:rgba({'0,255,136' if bar_pct >= 70 else '255,199,0' if bar_pct >= 40 else '255,71,87'},.12);
+                            color:{'#00ff88' if bar_pct >= 70 else '#ffc700' if bar_pct >= 40 else '#ff4757'};
+                            border:1px solid rgba({'0,255,136' if bar_pct >= 70 else '255,199,0' if bar_pct >= 40 else '255,71,87'},.25);
+                            margin-top:.3rem;
+                        ">{score} / {max_score}</span>
+                        <p style="color:#8892b0; font-size:.82rem; margin-top:.4rem;">{reason}</p>
                     </div>
                     """, unsafe_allow_html=True)
 
+                # ── AI Explanation ────────────────────────────────────────────
                 st.markdown("##### 🤖 AI Explanation")
 
-                prompt = f"""
-                Explain why {b} received this score.
+                prompt = f"""You are a brand analyst. Explain {b}'s market position in 3 sentences.
 
-                Breakdown:
-                {breakdown}
+        Brand: {b}
+        Product: {prod_type}
+        Total score: {total}/100 (Grade: {grade})
+        Component scores (out of max):
+        - Rating: {breakdown.get('rating', {}).get('score', 'N/A')} / 35
+        - Price competitiveness: {breakdown.get('price', {}).get('score', 'N/A')} / 25
+        - Trend momentum: {breakdown.get('trend', {}).get('score', 'N/A')} / 25
+        - Value: {breakdown.get('value', {}).get('score', 'N/A')} / 15
 
-                Give a simple explanation in 3-4 sentences.
-                """
+        Give a plain-English explanation of what these scores reveal about {b}'s strengths and weaknesses. Do not recalculate. Be specific."""
 
-                # ✅ MUST BE INSIDE
                 ai_explain = llm_call(prompt)
-                st.markdown(ai_explain)
+                st.markdown(f"<p style='color:#ccd6f6; line-height:1.7;'>{ai_explain}</p>", unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════════════════
     #  TAB 2 — Market Trends
